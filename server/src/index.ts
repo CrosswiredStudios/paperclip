@@ -43,6 +43,8 @@ import {
   instanceUserRoles,
 } from "@paperclipai/db";
 import detectPort from "detect-port";
+import { findAvailablePort } from "@paperclipai/db/migration-runtime";
+import { isEmbeddedPostgresProcess } from "@paperclipai/db/embedded-postgres-process";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { logger } from "./middleware/logger.js";
@@ -513,7 +515,11 @@ async function startServerWithDatabaseTeardown(
       }
     };
   
-    const runningPid = getRunningPid();
+    const recordedPid = getRunningPid();
+    const runningPid = recordedPid && await isEmbeddedPostgresProcess(recordedPid) ? recordedPid : null;
+    if (recordedPid && !runningPid) {
+      logger.warn(`Ignoring stale PostgreSQL PID ${recordedPid}; it no longer identifies PostgreSQL`);
+    }
     if (runningPid) {
       port = embeddedPostgresOwnerPort(readFileSync(postmasterPidFile, "utf8"), dataDir, runningPid);
       const actualDataDir = await getPostgresDataDirectory(`postgres://paperclip:paperclip@127.0.0.1:${port}/postgres`);
@@ -536,9 +542,9 @@ async function startServerWithDatabaseTeardown(
           `Embedded PostgreSQL appears to already be reachable without a pid file; reusing existing server on configured port ${configuredPort}`,
         );
       } catch {
-        const detectedPort = await detectPort(configuredPort);
+        const detectedPort = await findAvailablePort(configuredPort);
         if (detectedPort !== configuredPort) {
-          logger.warn(`Embedded PostgreSQL port is in use; using next free port (requestedPort=${configuredPort}, selectedPort=${detectedPort})`);
+          logger.warn(`Embedded PostgreSQL port is unavailable or reserved; using next bindable port (requestedPort=${configuredPort}, selectedPort=${detectedPort})`);
         }
         port = detectedPort;
         logger.info(`Using embedded PostgreSQL because no DATABASE_URL set (dataDir=${dataDir}, port=${port})`);

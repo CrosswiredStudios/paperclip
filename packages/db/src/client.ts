@@ -284,7 +284,9 @@ export function createDb(url: string, options?: DatabaseClientOptions) {
 }
 
 export async function getPostgresDataDirectory(url: string): Promise<string | null> {
-  const sql = createUtilitySql(url);
+  // This is an optional adoption probe, often against an unavailable port.
+  // Keep connection attempts and cleanup short so startup can fall back.
+  const sql = postgres(url, { max: 1, onnotice: () => {}, connect_timeout: 5 });
   try {
     const rows = await sql<{ data_directory: string | null }[]>`
       SELECT current_setting('data_directory', true) AS data_directory
@@ -294,7 +296,7 @@ export async function getPostgresDataDirectory(url: string): Promise<string | nu
   } catch {
     return null;
   } finally {
-    await sql.end();
+    await sql.end({ timeout: 1 });
   }
 }
 

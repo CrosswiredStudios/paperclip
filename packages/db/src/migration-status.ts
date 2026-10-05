@@ -2,6 +2,11 @@ import { inspectMigrations } from "./client.js";
 import { resolveMigrationConnection } from "./migration-runtime.js";
 
 const jsonMode = process.argv.includes("--json");
+let currentStage = "loading migration status";
+function reportStage(stage: string) {
+  currentStage = stage;
+  process.stderr.write(`[paperclip:database] ${stage}\n`);
+}
 
 function toError(error: unknown, context = "Migration status check failed"): Error {
   if (error instanceof Error) return error;
@@ -16,9 +21,10 @@ function toError(error: unknown, context = "Migration status check failed"): Err
 }
 
 async function main(): Promise<void> {
-  const connection = await resolveMigrationConnection();
+  const connection = await resolveMigrationConnection(reportStage);
 
   try {
+    reportStage("inspecting migration journal");
     const state = await inspectMigrations(connection.connectionString);
     const payload =
       state.status === "upToDate"
@@ -54,7 +60,16 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => {
+// Bound the entire preflight, including connection probes and database shutdown.
+const watchdog = setTimeout(() => {
+  process.stderr.write(`[paperclip:database] Migration status timed out after 120 seconds while ${currentStage}. ` +
+    "Stop this startup and inspect PostgreSQL processes for this instance before retrying. Do not delete the database directory.\n");
+  process.exit(1);
+}, 120_000);
+main().then(() => {
+  clearTimeout(watchdog);
+}).catch((error) => {
+  clearTimeout(watchdog);
   const err = toError(error, "Migration status check failed");
   process.stderr.write(`${err.stack ?? err.message}\n`);
   process.exit(1);

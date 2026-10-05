@@ -372,6 +372,8 @@ async function runPnpm(args: string[], options: {
   stdio?: "inherit" | ["ignore", "pipe", "pipe"];
   env?: NodeJS.ProcessEnv;
   cwd?: string;
+  progressLabel?: string;
+  streamStderr?: boolean;
 } = {}) {
   return await new Promise<{ code: number; signal: NodeJS.Signals | null; stdout: string; stderr: string }>((resolve, reject) => {
     const spawned = spawn(pnpmBin, args, {
@@ -383,6 +385,10 @@ async function runPnpm(args: string[], options: {
 
     const stdoutBuffer = createCapturedOutputBuffer();
     const stderrBuffer = createCapturedOutputBuffer();
+    const startedAt = Date.now();
+    const progressTimer = options.progressLabel ? setInterval(() => {
+      console.log(`[paperclip] still waiting for ${options.progressLabel} (${Math.round((Date.now() - startedAt) / 1000)}s). For diagnostics, stop pnpm dev first, then run: pnpm --filter @paperclipai/db exec tsx src/migration-status.ts`);
+    }, 10_000) : undefined;
 
     if (spawned.stdout) {
       spawned.stdout.on("data", (chunk) => {
@@ -392,11 +398,16 @@ async function runPnpm(args: string[], options: {
     if (spawned.stderr) {
       spawned.stderr.on("data", (chunk) => {
         stderrBuffer.append(chunk);
+        if (options.streamStderr) process.stderr.write(chunk);
       });
     }
 
-    spawned.on("error", reject);
+    spawned.on("error", (error) => {
+      clearInterval(progressTimer);
+      reject(error);
+    });
     spawned.on("exit", (code, signal) => {
+      clearInterval(progressTimer);
       const stdout = stdoutBuffer.finish();
       const stderr = stderrBuffer.finish();
       resolve({
@@ -410,9 +421,10 @@ async function runPnpm(args: string[], options: {
 }
 
 async function getMigrationStatusPayload() {
+  console.log("[paperclip] checking database startup and migration status...");
   const status = await runPnpm(
     ["--silent", "--filter", "@paperclipai/db", "exec", "tsx", "src/migration-status.ts", "--json"],
-    { env },
+    { env, progressLabel: "database startup and migration status", streamStderr: true },
   );
   if (status.code !== 0) {
     process.stderr.write(

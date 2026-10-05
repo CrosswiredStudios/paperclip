@@ -53,12 +53,27 @@ pnpm install
 pnpm dev
 ```
 
+On Windows, run installation and development from a regular, non-administrator
+terminal. The postinstall SDK links use directory junctions, which do not require
+administrator privileges or Developer Mode. Embedded PostgreSQL refuses to run
+with administrator privileges.
+
 This starts:
 
 - API server: `http://localhost:3100`
 - UI: served by the API server in dev middleware mode (same origin as API)
 
 `pnpm dev` runs the server in watch mode and restarts on changes from workspace packages (including adapter packages). Use `pnpm dev:once` to run without file watching.
+
+The database preflight streams its current stage (port selection, connection,
+migration inspection, and shutdown) and prints a waiting message every ten
+seconds. Embedded PostgreSQL startup fails after sixty seconds, and the complete
+migration status check has a 120-second deadline, including connection probes
+and shutdown. Errors explain orphaned workers, administrator terminals,
+and database filesystem permissions. After an interrupted Windows startup, stop
+only PostgreSQL processes belonging to the affected instance, or restart Windows,
+then retry. Keep the database directory; removing it deletes local data. The
+startup timeout reports failure but does not automatically kill database workers.
 
 `pnpm dev:once` auto-applies pending local migrations by default before starting the dev server.
 

@@ -81,9 +81,10 @@ test("linkSdkInto replaces a symlink that points somewhere else", () => {
   const pkg = makePackage(join(workDir, "stale-link"));
   const scopeDir = join(pkg, "node_modules", "@paperclipai");
   mkdirSync(scopeDir, { recursive: true });
-  symlinkSync("../somewhere-else", join(scopeDir, "plugin-sdk"), "dir");
+  const staleTarget = makePackage(join(workDir, "somewhere-else"));
+  symlinkSync(staleTarget, join(scopeDir, "plugin-sdk"), process.platform === "win32" ? "junction" : "dir");
 
   assert.equal(linkSdkInto(pkg), true);
-  assert.notEqual(readlinkSync(join(scopeDir, "plugin-sdk")), "../somewhere-else");
+  assert.notEqual(readlinkSync(join(scopeDir, "plugin-sdk")), staleTarget);
   assert.ok(existsSync(scopeDir));
 });
